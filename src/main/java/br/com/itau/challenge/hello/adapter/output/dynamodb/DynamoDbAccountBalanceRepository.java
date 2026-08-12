@@ -2,6 +2,7 @@ package br.com.itau.challenge.hello.adapter.output.dynamodb;
 
 import br.com.itau.challenge.hello.domain.model.AccountBalance;
 import br.com.itau.challenge.hello.port.output.AccountBalanceRepository;
+import io.github.resilience4j.retry.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Component
 public class DynamoDbAccountBalanceRepository implements AccountBalanceRepository {
@@ -32,12 +34,15 @@ public class DynamoDbAccountBalanceRepository implements AccountBalanceRepositor
 
     private final DynamoDbClient dynamoDbClient;
     private final String tableName;
+    private final Retry retry;
 
     public DynamoDbAccountBalanceRepository(
             DynamoDbClient dynamoDbClient,
-            @Value("${dynamodb.balance-table-name}") String tableName) {
+            @Value("${dynamodb.balance-table-name}") String tableName,
+            Retry dynamoDbRetry) {
         this.dynamoDbClient = dynamoDbClient;
         this.tableName = tableName;
+        this.retry = dynamoDbRetry;
     }
 
     @Override
@@ -47,7 +52,7 @@ public class DynamoDbAccountBalanceRepository implements AccountBalanceRepositor
                 .key(Map.of(ACCOUNT_ID_ATTRIBUTE, AttributeValue.builder().s(accountId.toString()).build()))
                 .build();
 
-        GetItemResponse response = dynamoDbClient.getItem(request);
+        GetItemResponse response = executeWithRetry(() -> dynamoDbClient.getItem(request));
 
         if (!response.hasItem()) {
             return Optional.empty();
@@ -77,13 +82,17 @@ public class DynamoDbAccountBalanceRepository implements AccountBalanceRepositor
                 .build();
 
         try {
-            dynamoDbClient.putItem(request);
+            executeWithRetry(() -> dynamoDbClient.putItem(request));
             return true;
         } catch (ConditionalCheckFailedException e) {
             log.info("Discarded stale/duplicate balance update for account {} (updatedAt={})",
                     balance.accountId(), balance.updatedAt());
             return false;
         }
+    }
+
+    private <T> T executeWithRetry(Supplier<T> operation) {
+        return Retry.decorateSupplier(retry, operation).get();
     }
 
     private AccountBalance toDomain(Map<String, AttributeValue> item) {
