@@ -4,9 +4,11 @@ import br.com.itau.challenge.hello.domain.exception.AccountNotFoundException;
 import br.com.itau.challenge.hello.domain.model.AccountBalance;
 import br.com.itau.challenge.hello.port.input.GetAccountBalanceUseCase;
 import br.com.itau.challenge.hello.port.output.AccountBalanceRepository;
+import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
+@Service
 public class AccountBalanceQueryService implements GetAccountBalanceUseCase {
 
     private final AccountBalanceRepository accountBalanceRepository;
